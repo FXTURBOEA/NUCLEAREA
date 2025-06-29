@@ -191,8 +191,6 @@ public:
    
    // Advanced Trading Controls
    bool              CheckTradingPermission(ulong magic, string &errorMsg);
-   bool              CheckNewsRestrictions(string symbol, string &errorMsg);
-   bool              CheckTimeRestrictions(string &errorMsg);
    
    // Information Methods
    string            GetLastTradeComment() const;
@@ -565,7 +563,7 @@ bool CFTMOExecuteManager::CheckPendingOrderCapacity(ulong magic, double orderRis
 }
 
 //+------------------------------------------------------------------+
-//| Execute Market Order                                            |
+//| Execute Market Order (OPTIMIZED)                                |
 //+------------------------------------------------------------------+
 STradeRequestResult CFTMOExecuteManager::ExecuteMarketOrder(const SMarketOrderParams &params)
 {
@@ -609,47 +607,24 @@ STradeRequestResult CFTMOExecuteManager::ExecuteMarketOrder(const SMarketOrderPa
    
    if(!params.overrideRisk && m_riskManager != NULL)
    {
-      // 1. Trading genel kontrolü - EN ÖNCELİKLİ
-      if(!m_riskManager.IsTradingAllowed())
+      // TÜM KONTROLLER TEK YERDEN (OPTIMIZED)
+      string permissionError;
+      if(!CheckTradingPermission(params.magic, permissionError))
       {
-         result.errorMessage = "Trading not allowed - daily limits reached";
+         result.errorMessage = permissionError;
          LogTradeResult(result);
          return result;
       }
       
-      // 2. Spesifik limit kontrolleri
-      if(m_riskManager.ShouldStopTradingProfit())
-      {
-         result.errorMessage = "Daily profit target reached - trading stopped";
-         LogTradeResult(result);
-         return result;
-      }
-      
-      if(m_riskManager.ShouldStopTradingDrawdown())
-      {
-         result.errorMessage = "Daily drawdown limit exceeded - trading stopped";
-         LogTradeResult(result);
-         return result;
-      }
-      
-      // 3. Magic konfigürasyonu kontrolü
-      if(!m_riskManager.IsMagicConfigured(params.magic))
-      {
-         result.errorMessage = "Magic " + IntegerToString(params.magic) + " not configured in Risk Manager";
-         LogTradeResult(result);
-         return result;
-      }
-      
-      // 4. Profit realization bilgilendirmesi
+      // Profit realization bilgilendirmesi (opsiyonel)
       if(m_riskManager.ShouldRealizeProfits())
       {
          Print("INFO: Floating profit target reached - consider profit realization");
          Print("Current floating profit: ", DoubleToString(m_riskManager.GetFloatingProfitPercent(), 2), "%");
          Print("Target: ", DoubleToString(m_riskManager.GetProfitRealizeTarget(), 2), "%");
-         // Devam edebilir ama bilgilendirme yapıldı
       }
       
-      // 5. Risk analizi
+      // Risk analizi
       ENUM_POSITION_TYPE posType = (params.orderType == ORDER_TYPE_BUY) ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
       SRiskAnalysisResult riskAnalysis = m_riskManager.AnalyzePositionRisk(params.magic, params.symbol, 
                                                                           entryPrice, posType, params.stopLoss);
@@ -659,6 +634,12 @@ STradeRequestResult CFTMOExecuteManager::ExecuteMarketOrder(const SMarketOrderPa
          result.errorMessage = "Risk validation failed: " + riskAnalysis.riskMessage;
          LogTradeResult(result);
          return result;
+      }
+      
+      // News kısıtlaması varsa bilgilendir (news kontrolü RiskManager tarafından yapıldı)
+      if(riskAnalysis.newsRestricted)
+      {
+         Print("WARNING: News restriction active - ", riskAnalysis.newsRestrictionReason);
       }
       
       if(params.useAutoLotSize)
@@ -714,7 +695,7 @@ STradeRequestResult CFTMOExecuteManager::ExecuteMarketOrder(const SMarketOrderPa
       if(attempt < m_maxRetries)
       {
          Sleep(m_retryDelay);
-         m_symbolInfo.RefreshRates();  // Refresh prices
+         m_symbolInfo.RefreshRates();
       }
    }
    
@@ -723,6 +704,7 @@ STradeRequestResult CFTMOExecuteManager::ExecuteMarketOrder(const SMarketOrderPa
    
    return result;
 }
+
 
 //+------------------------------------------------------------------+
 //| Open Buy Position                                               |
@@ -810,7 +792,7 @@ STradeRequestResult CFTMOExecuteManager::OpenAutoSellPosition(ulong magic, strin
 }
 
 //+------------------------------------------------------------------+
-//| Execute Pending Order                                           |
+//| Execute Pending Order (OPTIMIZED)                               |
 //+------------------------------------------------------------------+
 STradeRequestResult CFTMOExecuteManager::ExecutePendingOrder(const SPendingOrderParams &params)
 {
@@ -841,47 +823,24 @@ STradeRequestResult CFTMOExecuteManager::ExecutePendingOrder(const SPendingOrder
    
    if(!params.overrideRisk && m_riskManager != NULL)
    {
-      // 1. Trading genel kontrolü - EN ÖNCELİKLİ
-      if(!m_riskManager.IsTradingAllowed())
+      // TÜM KONTROLLER TEK YERDEN (OPTIMIZED)
+      string permissionError;
+      if(!CheckTradingPermission(params.magic, permissionError))
       {
-         result.errorMessage = "Trading not allowed - daily limits reached";
+         result.errorMessage = permissionError;
          LogTradeResult(result);
          return result;
       }
       
-      // 2. Spesifik limit kontrolleri
-      if(m_riskManager.ShouldStopTradingProfit())
-      {
-         result.errorMessage = "Daily profit target reached - trading stopped";
-         LogTradeResult(result);
-         return result;
-      }
-      
-      if(m_riskManager.ShouldStopTradingDrawdown())
-      {
-         result.errorMessage = "Daily drawdown limit exceeded - trading stopped";
-         LogTradeResult(result);
-         return result;
-      }
-      
-      // 3. Magic konfigürasyonu kontrolü
-      if(!m_riskManager.IsMagicConfigured(params.magic))
-      {
-         result.errorMessage = "Magic " + IntegerToString(params.magic) + " not configured in Risk Manager";
-         LogTradeResult(result);
-         return result;
-      }
-      
-      // 4. Profit realization bilgilendirmesi
+      // Profit realization bilgilendirmesi
       if(m_riskManager.ShouldRealizeProfits())
       {
          Print("INFO: Floating profit target reached - consider profit realization");
          Print("Current floating profit: ", DoubleToString(m_riskManager.GetFloatingProfitPercent(), 2), "%");
          Print("Target: ", DoubleToString(m_riskManager.GetProfitRealizeTarget(), 2), "%");
-         // Devam edebilir ama bilgilendirme yapıldı
       }
       
-      // 5. Risk analizi
+      // Risk analizi
       ENUM_POSITION_TYPE posType = (params.orderType == ORDER_TYPE_BUY_LIMIT || 
                                    params.orderType == ORDER_TYPE_BUY_STOP) ? 
                                    POSITION_TYPE_BUY : POSITION_TYPE_SELL;
@@ -896,6 +855,12 @@ STradeRequestResult CFTMOExecuteManager::ExecutePendingOrder(const SPendingOrder
          return result;
       }
       
+      // News kısıtlaması varsa bilgilendir
+      if(riskAnalysis.newsRestricted)
+      {
+         Print("WARNING: News restriction active - ", riskAnalysis.newsRestrictionReason);
+      }
+      
       finalLotSize = riskAnalysis.recommendedLotSize;
       
       if(params.stopLoss <= 0)
@@ -907,7 +872,7 @@ STradeRequestResult CFTMOExecuteManager::ExecutePendingOrder(const SPendingOrder
       result.actualRisk = riskAnalysis.calculatedRisk;
       result.actualRiskPercent = riskAnalysis.calculatedRiskPercent;
       
-      // 6. Pending Order Risk Capacity kontrolü
+      // Pending Order Risk Capacity kontrolü
       string capacityError;
       if(!CheckPendingOrderCapacity(params.magic, riskAnalysis.calculatedRiskPercent, capacityError))
       {
@@ -1253,7 +1218,7 @@ bool CFTMOExecuteManager::ValidatePendingOrderParams(const SPendingOrderParams &
 }
 
 //+------------------------------------------------------------------+
-//| Check Trading Permission                                        |
+//| Check Trading Permission (UPDATED - News ve Time kontrolsüz)   |
 //+------------------------------------------------------------------+
 bool CFTMOExecuteManager::CheckTradingPermission(ulong magic, string &errorMsg)
 {
@@ -1294,53 +1259,6 @@ bool CFTMOExecuteManager::CheckTradingPermission(ulong magic, string &errorMsg)
    return true;
 }
 
-//+------------------------------------------------------------------+
-//| Check News Restrictions                                         |
-//+------------------------------------------------------------------+
-bool CFTMOExecuteManager::CheckNewsRestrictions(string symbol, string &errorMsg)
-{
-   // Bu fonksiyon gelecekte news calendar entegrasyonu için hazır
-   // Şu anda sadece placeholder
-   
-   // Örnek: Major news 30 dakika öncesi trading durdur
-   // if(IsHighImpactNewsNear(symbol, 30)) {
-   //    errorMsg = "High impact news approaching - trading restricted";
-   //    return false;
-   // }
-   
-   return true; // Şu anda her zaman true
-}
-
-//+------------------------------------------------------------------+
-//| Check Time Restrictions                                         |
-//+------------------------------------------------------------------+
-bool CFTMOExecuteManager::CheckTimeRestrictions(string &errorMsg)
-{
-   datetime currentTime = TimeCurrent();
-   MqlDateTime timeStruct;
-   TimeToStruct(currentTime, timeStruct);
-   
-   // Örnek: Cuma 22:00 - Pazar 22:00 arası trading yasak
-   if(timeStruct.day_of_week == 5 && timeStruct.hour >= 22) // Cuma 22:00+
-   {
-      errorMsg = "Weekend trading restriction - Friday 22:00+";
-      return false;
-   }
-   
-   if(timeStruct.day_of_week == 6) // Cumartesi
-   {
-      errorMsg = "Weekend trading restriction - Saturday";
-      return false;
-   }
-   
-   if(timeStruct.day_of_week == 0 && timeStruct.hour < 22) // Pazar 22:00-
-   {
-      errorMsg = "Weekend trading restriction - Sunday before 22:00";
-      return false;
-   }
-   
-   return true;
-}
 
 //+------------------------------------------------------------------+
 //| Get Last Trade Comment                                          |
