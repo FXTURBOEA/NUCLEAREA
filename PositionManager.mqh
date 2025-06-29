@@ -597,33 +597,25 @@ bool CFTMOPositionManager::CheckNewsStatus(ulong magic, string symbol, bool &sho
    shouldClose = false;
    reason = "";
    
-   // Global news filter kapalıysa kontrol etme
-   if(!m_globalNewsFilterEnabled)
-      return false;
-   
-   // News Manager yoksa kısıtlama yok
-   if(m_newsManager == NULL)
-      return false;
-   
-   // Get effective config
-   SGlobalPositionConfig config;
-   if(!GetEffectiveConfigCached(magic, config))
-      return false;
-   
-   // News close aktif değilse
-   if(!config.enableNewsClose)
-      return false;
-   
-   // Symbol'ü monitor et
-   if(!m_newsManager.IsSymbolMonitored(symbol))
-      m_newsManager.AddSymbolToMonitor(symbol);
-   
-   // Haber zamanı mı kontrol et
-   if(m_newsManager.IsNewsTime(symbol))
+   // RiskManager'a sor
+   if(m_riskManager != NULL)
    {
-      reason = m_newsManager.GetNewsRestrictionReason(symbol);
-      shouldClose = m_newsManager.ShouldClosePosition(symbol);
-      return true;
+      // RiskManager'dan news close kararını al
+      shouldClose = m_riskManager.ShouldClosePositionsForNews(magic);
+      
+      if(shouldClose)
+      {
+         // NewsManager'dan sadece reason bilgisini al
+         if(m_newsManager != NULL && m_newsManager.IsNewsTime(symbol))
+         {
+            reason = m_newsManager.GetNewsRestrictionReason(symbol);
+         }
+         else
+         {
+            reason = "News close required by Risk Manager";
+         }
+         return true;
+      }
    }
    
    return false;
@@ -698,20 +690,27 @@ void CFTMOPositionManager::ProcessNewsActions()
          bool shouldClose = false;
          string newsReason = "";
          
-         if(CheckNewsStatus(magic, symbol, shouldClose, newsReason))
+         // RiskManager'dan magic config'i al
+         SMagicRiskConfig magicConfig;
+         if(m_riskManager.GetMagicConfig(magic, magicConfig))
          {
-            string cancelReason = "News Cancel: " + newsReason;
-            
-            Print("Cancelling pending order ", ticket, " (", symbol, ") - ", cancelReason);
-            
-            if(m_trade.OrderDelete(ticket))
+            // News filter aktif ve trade block var mı?
+            if(magicConfig.useNewsFilter && magicConfig.blockTradesOnNews)
             {
-               m_newsCancelledOrders++;
-               Print("Order ", ticket, " cancelled due to news");
-            }
-            else
-            {
-               Print("Failed to cancel order ", ticket, " due to news: ", m_trade.ResultComment());
+               // NewsManager'dan kontrol
+               if(m_newsManager != NULL && m_newsManager.IsNewsTime(symbol))
+               {
+                  string newsReason = m_newsManager.GetNewsRestrictionReason(symbol);
+                  string cancelReason = "News Cancel: " + newsReason;
+                  
+                  Print("Cancelling pending order ", ticket, " (", symbol, ") - ", cancelReason);
+                  
+                  if(m_trade.OrderDelete(ticket))
+                  {
+                     m_newsCancelledOrders++;
+                     Print("Order ", ticket, " cancelled due to news");
+                  }
+               }
             }
          }
       }
@@ -1291,6 +1290,7 @@ void CFTMOPositionManager::UpdateAllPositionsStatus()
          m_symbolCaches[i].lastPositionClose = TimeCurrent();
       }
    }
+   
 }
 
 //+------------------------------------------------------------------+
